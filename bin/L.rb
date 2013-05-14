@@ -1,7 +1,6 @@
-#!/usr/bin/ruby
+#!/usr/bin/env ruby
 
 require 'xcodeproj'
-require 'ruby-debug'
 
 def find_files group, path, regex
   files = []
@@ -15,22 +14,17 @@ def find_files group, path, regex
     case child
 
       when Xcodeproj::Project::Object::PBXVariantGroup
-        if child.name.match regex
-          lprojs = child.children.map {|c| c.name + '.lproj'}
-          lprojs.each do |l|
-            files << File.join(group_path, l, child.name)
-          end
-        end
-
+        group_files = find_files(child, group_path, regex)
+        files.concat group_files
+        
       when Xcodeproj::Project::Object::PBXGroup
         group_files = find_files(child, group_path, regex)
         files.concat group_files
   
       when Xcodeproj::Project::Object::PBXFileReference
-        if child.path.match regex
+        if File.basename(child.path).match regex
           files << File.join(group_path, child.path)
         end
-
     end
   end
 
@@ -40,28 +34,28 @@ end
 proj = Xcodeproj::Project.new ARGV[0]
 
 source_files = find_files proj.root_object.main_group, '.', /\.[hm]$/
-source_file_strings = Set.new
+source_file_strings = Array.new
 
 source_files.each do |path|
   File.open(path) do |f|
-    f.read.scan /(?<=L\(@)[^)]*|(?<=LU\(@)[^)]*|(?<=LF\(@)[^,]*/ do |match|
+    f.read.scan /(?<=NSLocalizedString\(@)[^,]*|(?<=L\(@)[^)]*|(?<=LU\(@)[^)]*|(?<=LF\(@)[^,]*/ do |match|
       source_file_strings << match.to_s
     end
   end
 end
-
+                                                 
 string_files = find_files proj.root_object.main_group, '.', /^Localizable\.strings$/
 missing_strings_count = 0
 
 string_files.each do |path|
-  string_file_strings = Set.new
 
+  string_file_strings = Array.new
   File.open(path) do |f|
     f.read.scan /^"[^"]*"/ do |match|
       string_file_strings << match.to_s
     end
   end
-
+                                                 
   source_not_strings = (source_file_strings - string_file_strings)
   if source_not_strings.count > 0
     puts "In source but not #{path}:"
